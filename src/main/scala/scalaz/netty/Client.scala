@@ -95,7 +95,7 @@ private[netty] object Client {
     val client = new Client(config.limit)
     val bootstrap = new Bootstrap
 
-    bootstrap.group(Netty.workerGroup)
+    bootstrap.group(Netty.workerGroup(1))
     bootstrap.channel(classOf[NioSocketChannel])
 
     bootstrap.option[java.lang.Boolean](ChannelOption.SO_KEEPALIVE, config.keepAlive)

@@ -17,6 +17,8 @@
 package scalaz
 package netty
 
+import java.util.concurrent.atomic.AtomicInteger
+
 import concurrent._
 import stream._
 
@@ -30,17 +32,21 @@ import _root_.io.netty.channel.nio.NioEventLoopGroup
 
 object Netty {
 
-  private[netty] lazy val workerGroup = new NioEventLoopGroup(1, new ThreadFactory {
-    def newThread(r: Runnable): Thread = {
-      val back = new Thread(r)
-      back.setName("netty-worker")
-      back.setDaemon(true)          // we're never going to clean this up
-      back.setPriority(8)           // get in, and get out.  fast.
-      back
-    }
-  })
+  private[netty] final case class NettyThreadFactory(var name: String) extends ThreadFactory {
+    private def namePrefix = name + "-thread"
+    private val threadNumber = new AtomicInteger(1)
+    private val group = Thread.currentThread().getThreadGroup()
 
-  def server(bind: InetSocketAddress, config: ServerConfig = ServerConfig.Default)(implicit pool: ExecutorService = Strategy.DefaultExecutorService): Process[Task, (InetSocketAddress, Exchange[ByteVector, ByteVector])] = {
+    override def newThread(r: Runnable) = {
+      val th = new Thread(this.group, r, s"$namePrefix-${threadNumber.getAndIncrement()}", 0L)
+      th.setDaemon(true)
+      th
+    }
+  }
+
+  private[netty] def workerGroup(workerNum: Int) = new NioEventLoopGroup(workerNum, NettyThreadFactory("netty-worker"))
+
+  def server(bind: InetSocketAddress, config: ServerConfig = ServerConfig.Default)(implicit pool: ExecutorService): Process[Task, (InetSocketAddress, Exchange[ByteVector, ByteVector])] = {
     Process.await(Server(bind, config)) { server: Server =>
       server.listen onComplete Process.eval(server.shutdown).drain
     }

@@ -36,14 +36,14 @@ import _root_.io.netty.channel.socket._
 import _root_.io.netty.channel.socket.nio._
 import _root_.io.netty.handler.codec._
 
-private[netty] class Server(bossGroup: NioEventLoopGroup, limit: Int) { server =>
+private[netty] class Server(bossGroup: NioEventLoopGroup, limit: Int)(implicit pool: ExecutorService) { server =>
   private val logger = Logger.getLogger("scalaz-netty-server")
 
   // this isn't ugly or anything...
   private var channel: _root_.io.netty.channel.Channel = _
 
   // represents incoming connections
-  private val queue = async.boundedQueue[(InetSocketAddress, Exchange[ByteVector, ByteVector])](limit)
+  private val queue = async.boundedQueue[(InetSocketAddress, Exchange[ByteVector, ByteVector])](limit)(Strategy.Executor(pool))
 
   def listen: Process[Task, (InetSocketAddress, Exchange[ByteVector, ByteVector])] =
     queue.dequeue
@@ -61,9 +61,8 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, limit: Int) { server =
   }
 
   private final class Handler(channel: SocketChannel)(implicit pool: ExecutorService) extends ChannelInboundHandlerAdapter {
-
     // data from a single connection
-    private val queue = async.boundedQueue[ByteVector](limit)
+    private val channelQueue = async.boundedQueue[ByteVector](limit)(Strategy.Executor(pool))
 
     override def channelActive(ctx: ChannelHandlerContext): Unit = {
       val exchange: Exchange[ByteVector, ByteVector] = Exchange(read, write)
@@ -85,7 +84,7 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, limit: Int) { server =
       val bv = ByteVector(buf.nioBuffer)       // copy data (alternatives are insanely clunky)
       buf.release()
 
-      queue.enqueueOne(bv).runAsync(_ => ctx.read())
+      Task.fork(channelQueue.enqueueOne(bv))(pool).runAsync { _ => ctx.read() }
     }
 
     override def exceptionCaught(ctx: ChannelHandlerContext, t: Throwable): Unit = {
@@ -94,7 +93,7 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, limit: Int) { server =
     }
 
     // do not call more than once!
-    private def read: Process[Task, ByteVector] = queue.dequeue
+    private def read: Process[Task, ByteVector] = channelQueue.dequeue
 
     private def write: Sink[Task, ByteVector] = {
       def inner(bv: ByteVector): Task[Unit] = {
@@ -114,7 +113,7 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, limit: Int) { server =
     def shutdown: Task[Unit] = {
       for {
         _ <- Netty toTask channel.close()
-        _ <- queue.close
+        _ <- channelQueue.close
       } yield ()
     }
   }
@@ -122,12 +121,12 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, limit: Int) { server =
 
 private[netty] object Server {
   def apply(bind: InetSocketAddress, config: ServerConfig)(implicit pool: ExecutorService): Task[Server] = Task delay {
-    val bossGroup = new NioEventLoopGroup(config.numThreads)
+    val bossGroup = new NioEventLoopGroup()
 
-    val server = new Server(bossGroup, config.limit)
+    val server = new Server(bossGroup, config.channelQueueMaxSize)
     val bootstrap = new ServerBootstrap
 
-    bootstrap.group(bossGroup, Netty.workerGroup)
+    bootstrap.group(bossGroup, Netty.workerGroup(config.workerNum))
       .channel(classOf[NioServerSocketChannel])
       .childOption[java.lang.Boolean](ChannelOption.SO_KEEPALIVE, config.keepAlive)
       .childOption[java.lang.Boolean](ChannelOption.AUTO_READ, false)
@@ -154,9 +153,9 @@ private[netty] object Server {
   } join
 }
 
-final case class ServerConfig(keepAlive: Boolean, numThreads: Int, limit: Int, codeFrames: Boolean)
+final case class ServerConfig(keepAlive: Boolean, workerNum: Int, channelQueueMaxSize: Int, codeFrames: Boolean)
 
 object ServerConfig {
   // 1000?  does that even make sense?
-  val Default = ServerConfig(true, Runtime.getRuntime.availableProcessors, 1000, true)
+  val Default = ServerConfig(true, 4, 1000, true)
 }
