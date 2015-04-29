@@ -17,6 +17,8 @@
 package scalaz
 package netty
 
+import org.apache.log4j.Logger
+
 import concurrent._
 import stream._
 import syntax.monad._
@@ -35,16 +37,19 @@ import _root_.io.netty.channel.socket.nio._
 import _root_.io.netty.handler.codec._
 
 private[netty] class Server(bossGroup: NioEventLoopGroup, limit: Int) { server =>
+  private val logger = Logger.getLogger("scalaz-netty-server")
+
   // this isn't ugly or anything...
   private var channel: _root_.io.netty.channel.Channel = _
 
   // represents incoming connections
-  private val queue = async.boundedQueue[(InetSocketAddress, Process[Task, Exchange[ByteVector, ByteVector]])](limit)
+  private val queue = async.boundedQueue[(InetSocketAddress, Exchange[ByteVector, ByteVector])](limit)
 
-  def listen: Process[Task, (InetSocketAddress, Process[Task, Exchange[ByteVector, ByteVector]])] =
+  def listen: Process[Task, (InetSocketAddress, Exchange[ByteVector, ByteVector])] =
     queue.dequeue
 
   def shutdown(implicit pool: ExecutorService): Task[Unit] = {
+    logger.debug(".... shutdown server")
     for {
       _ <- Netty toTask channel.close()
       _ <- queue.close
@@ -61,21 +66,17 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, limit: Int) { server =
     private val queue = async.boundedQueue[ByteVector](limit)
 
     override def channelActive(ctx: ChannelHandlerContext): Unit = {
-      val process: Process[Task, Exchange[ByteVector, ByteVector]] =
-        Process(Exchange(read, write)) onComplete Process.eval(shutdown).drain
+      val exchange: Exchange[ByteVector, ByteVector] = Exchange(read, write)
+      server.queue.enqueueOne((channel.remoteAddress, exchange)).run
 
-      // gross...
-      val addr = channel.remoteAddress.asInstanceOf[InetSocketAddress]
-
-      server.queue.enqueueOne((addr, process)).run
-
+      //init read from channel since ChannelOption.AUTO_READ == false
+      ctx.read()
       super.channelActive(ctx)
     }
 
     override def channelInactive(ctx: ChannelHandlerContext): Unit = {
       // if the connection is remotely closed, we need to clean things up on our side
-      queue.close.run
-
+      shutdown
       super.channelInactive(ctx)
     }
 
@@ -84,14 +85,12 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, limit: Int) { server =
       val bv = ByteVector(buf.nioBuffer)       // copy data (alternatives are insanely clunky)
       buf.release()
 
-      // because this is run and not runAsync, we have backpressure propagation
-      queue.enqueueOne(bv).run
+      queue.enqueueOne(bv).runAsync(_ => ctx.read())
     }
 
     override def exceptionCaught(ctx: ChannelHandlerContext, t: Throwable): Unit = {
-      queue.fail(t).run
-
-      // super.exceptionCaught(ctx, t)
+      logger.debug("Error " + t.getMessage)
+      shutdown
     }
 
     // do not call more than once!
@@ -131,6 +130,7 @@ private[netty] object Server {
     bootstrap.group(bossGroup, Netty.workerGroup)
       .channel(classOf[NioServerSocketChannel])
       .childOption[java.lang.Boolean](ChannelOption.SO_KEEPALIVE, config.keepAlive)
+      .childOption[java.lang.Boolean](ChannelOption.AUTO_READ, false)
       .childHandler(new ChannelInitializer[SocketChannel] {
         def initChannel(ch: SocketChannel): Unit = {
           if (config.codeFrames) {

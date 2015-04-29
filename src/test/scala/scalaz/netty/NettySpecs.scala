@@ -26,13 +26,13 @@ import scodec.bits._
 import scala.concurrent.duration._
 
 import org.specs2.mutable._
-import org.specs2.time.NoTimeConversions
+
 import org.scalacheck._
 
 import java.net.InetSocketAddress
 import java.util.concurrent.{Executors, ThreadFactory}
 
-object NettySpecs extends Specification with NoTimeConversions {
+object NettySpecs extends Specification {
 
   sequential
 
@@ -62,8 +62,7 @@ object NettySpecs extends Specification with NoTimeConversions {
       val client = Netty connect addr flatMap { exchange =>
         val data = ByteVector(12, 42, 1)
 
-        // type annotation required because of a bug in Scala 2.10.4
-        val initiate = (Process(data): Process[Task, ByteVector]) to exchange.write
+        val initiate = Process(data) to exchange.write
 
         val check = for {
           results <- exchange.read.runLog
@@ -77,7 +76,7 @@ object NettySpecs extends Specification with NoTimeConversions {
         Process.eval(initiate.run >> check).drain
       }
 
-      val delay = Process.sleep(200 millis)(Strategy.DefaultStrategy, scheduler)
+      val delay = time.sleep(200 millis)(Strategy.DefaultStrategy, scheduler)
       Nondeterminism[Task].both(Task fork server.run, Task fork (delay fby client).run).run
 
       ok

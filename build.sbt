@@ -21,23 +21,24 @@ organization := "org.scalaz.netty"
 
 name := "scalaz-netty"
 
-scalaVersion := "2.11.5"
+scalaVersion := "2.11.6"
 
-crossScalaVersions := Seq("2.10.4", "2.11.5")
+crossScalaVersions := Seq(scalaVersion.value)
 
 resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
 libraryDependencies ++= Seq(
-  "org.scalaz"        %% "scalaz-core"   % "7.1.0",
-  "org.scalaz.stream" %% "scalaz-stream" % "0.6a",
+  "org.scalaz"        %% "scalaz-core"   % "7.1.1",
+  "org.scalaz.stream" %% "scalaz-stream" % "0.7a",
 
   "io.netty"          %  "netty-codec"   % "4.0.21.Final",
 
-  "org.typelevel"     %% "scodec-core"   % "1.6.0")
+  "org.scodec"        %% "scodec-core"   % "1.7.1",
+  "log4j"             %  "log4j"         % "1.2.14")
 
 libraryDependencies ++= Seq(
-  "org.specs2"     %% "specs2"     % "2.4.14" % "test",
-  "org.scalacheck" %% "scalacheck" % "1.12.1" % "test")
+  "org.specs2"     %% "specs2-core" % "3.3"    % "test",
+  "org.scalacheck" %% "scalacheck"  % "1.12.2" % "test")
 
 licenses += ("Apache-2.0", url("http://www.apache.org/licenses/"))
 
@@ -50,3 +51,5 @@ git.baseVersion := "master"
 bintraySettings
 
 bintrayOrganization in bintray := Some("rr")
+
+repository in bintray := (if (version.value startsWith "master") "snapshots" else "releases")
