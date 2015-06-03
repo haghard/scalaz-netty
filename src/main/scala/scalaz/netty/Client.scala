@@ -18,6 +18,7 @@ package scalaz
 package netty
 
 import concurrent._
+import scalaz.netty.Netty.NettyThreadFactory
 import stream._
 import syntax.monad._
 
@@ -34,11 +35,11 @@ import _root_.io.netty.channel.socket._
 import _root_.io.netty.channel.socket.nio._
 import _root_.io.netty.handler.codec._
 
-private[netty] final class Client(limit: Int) {
+private[netty] final class Client(limit: Int)(implicit pool: ExecutorService) {
   // this isn't ugly or anything...
   private var channel: _root_.io.netty.channel.Channel = _
 
-  private val queue = async.boundedQueue[ByteVector](limit)
+  private val queue = async.boundedQueue[ByteVector](limit)(Strategy.Executor(pool))
 
   def read: Process[Task, ByteVector] = queue.dequeue
 
@@ -64,7 +65,7 @@ private[netty] final class Client(limit: Int) {
     } yield ()
   }
 
-  private final class Handler extends ChannelInboundHandlerAdapter {
+  private final class Handler(implicit pool: ExecutorService) extends ChannelInboundHandlerAdapter {
 
     override def channelInactive(ctx: ChannelHandlerContext): Unit = {
       // if the connection is remotely closed, we need to clean things up on our side
@@ -78,8 +79,7 @@ private[netty] final class Client(limit: Int) {
       val bv = ByteVector(buf.nioBuffer)       // copy data (alternatives are insanely clunky)
       buf.release()
 
-      // because this is run and not runAsync, we have backpressure propagation
-      queue.enqueueOne(bv).run
+      Task.fork(queue.enqueueOne(bv))(pool).runAsync(_ => ())
     }
 
     override def exceptionCaught(ctx: ChannelHandlerContext, t: Throwable): Unit = {
@@ -94,8 +94,9 @@ private[netty] object Client {
   def apply(to: InetSocketAddress, config: ClientConfig)(implicit pool: ExecutorService): Task[Client] = Task delay {
     val client = new Client(config.limit)
     val bootstrap = new Bootstrap
+    val workerThreadPool = new NioEventLoopGroup(1, NettyThreadFactory("netty-worker"))
 
-    bootstrap.group(Netty.workerGroup(1))
+    bootstrap.group(workerThreadPool)
     bootstrap.channel(classOf[NioSocketChannel])
 
     bootstrap.option[java.lang.Boolean](ChannelOption.SO_KEEPALIVE, config.keepAlive)

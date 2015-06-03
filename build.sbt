@@ -27,14 +27,18 @@ crossScalaVersions := Seq(scalaVersion.value)
 
 resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
+net.virtualvoid.sbt.graph.Plugin.graphSettings
+
+
 libraryDependencies ++= Seq(
-  "org.scalaz"        %% "scalaz-core"   % "7.1.1",
+  //"org.scalaz"        %% "scalaz-core"   % "7.1.1",
   "org.scalaz.stream" %% "scalaz-stream" % "0.7a",
 
-  "io.netty"          %  "netty-codec"   % "4.0.21.Final",
+  "io.netty"          %  "netty-codec"   % "4.0.28.Final",
 
   "org.scodec"        %% "scodec-core"   % "1.7.1",
-  "log4j"             %  "log4j"         % "1.2.14")
+  "log4j"             %  "log4j"         % "1.2.14"
+)
 
 libraryDependencies ++= Seq(
   "org.specs2"     %% "specs2-core" % "3.3"    % "test",
@@ -53,3 +57,5 @@ bintraySettings
 bintrayOrganization in bintray := Some("rr")
 
 repository in bintray := (if (version.value startsWith "master") "snapshots" else "releases")
+
+//set version:="0.2.1"

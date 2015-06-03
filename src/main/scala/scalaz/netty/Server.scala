@@ -17,13 +17,17 @@
 package scalaz
 package netty
 
+import java.util.concurrent.atomic.AtomicReference
+
 import org.apache.log4j.Logger
 
 import concurrent._
+import scalaz.netty.Netty.NettyThreadFactory
+import scalaz.netty.Server.{TaskVar, ServerState}
 import stream._
 import syntax.monad._
 
-import scodec.bits.ByteVector
+import scodec.bits.{BitVector, ByteVector}
 
 import java.net.InetSocketAddress
 import java.util.concurrent.ExecutorService
@@ -36,37 +40,157 @@ import _root_.io.netty.channel.socket._
 import _root_.io.netty.channel.socket.nio._
 import _root_.io.netty.handler.codec._
 
-private[netty] class Server(bossGroup: NioEventLoopGroup, limit: Int)(implicit pool: ExecutorService) { server =>
-  private val logger = Logger.getLogger("scalaz-netty-server")
+private[netty] object Server {
+  val logger = Logger.getLogger("scalaz-netty-server")
+
+  case class ServerState private[netty](messageNum: Long = 0l, errorNum: Long = 0l, 
+                                        tracker: Map[InetSocketAddress, Long] = Map[InetSocketAddress, Long]())
+  
+  /** An atomically updatable reference, guarded by the `Task` monad. */
+  sealed trait TaskVar[A] {
+    def read: Task[A]
+    def write(value: A): Task[Unit]
+    def transact[B](f: A => (A, B)): Task[B]
+    def compareAndSet(oldVal: A, newVal: A): Task[Boolean]
+    def modify(f: A => A): Task[Unit] = transact(a => (f(a), ()))
+  }
+
+  object TaskVar {
+    def apply[A](value: => A): TaskVar[A] = new TaskVar[A] {
+      private val ref = new AtomicReference(value)
+
+      def read = Task(ref.get)
+
+      def write(value: A) = Task(ref.set(value))
+
+      def compareAndSet(oldVal: A, newVal: A) = Task(ref.compareAndSet(oldVal, newVal))
+
+      def transact[B](f: A => (A, B)): Task[B] = {
+        for {
+          a <- read
+          (newA, b) = f(a)
+          p <- compareAndSet(a, newA)
+          r <- if (p) Task.now(b) else transact(f)
+        } yield r
+      }
+    }
+  }
+
+  def apply(bind: InetSocketAddress, config: ServerConfig)(implicit pool: ExecutorService): Task[Server] = Task delay {
+    val bossThreadPool = new NioEventLoopGroup(2, NettyThreadFactory("boss"))
+    val workerThreadPool = new NioEventLoopGroup(config.workerNum, NettyThreadFactory("worker"))
+
+    val server = new Server(bossThreadPool, config.channelQueueMaxSize, TaskVar(ServerState()))
+    val bootstrap = new ServerBootstrap
+
+    bootstrap.group(bossThreadPool, workerThreadPool)
+      .channel(classOf[NioServerSocketChannel])
+      .childOption[java.lang.Boolean](ChannelOption.SO_KEEPALIVE, config.keepAlive)
+      .childOption[java.lang.Boolean](ChannelOption.AUTO_READ, false)
+      .childHandler(new ChannelInitializer[SocketChannel] {
+        def initChannel(ch: SocketChannel): Unit = {
+          if (config.codeFrames) {
+            ch.pipeline
+              .addLast("frame encoding", new LengthFieldPrepender(4))
+              .addLast("frame decoding", new LengthFieldBasedFrameDecoder(Int.MaxValue, 0, 4, 0, 4))
+          }
+
+          //ch.pipeline.addLast("deframer", new server.Deframer)
+          ch.pipeline.addLast("incoming handler", new server.Handler(ch))
+        }
+      })
+
+    val bindF = bootstrap.bind(bind)
+    val startMassage = new StringBuilder("\n")
+      .append(s"★ ★ ★ ★ ★ ★  Start server on $bind  ★ ★ ★ ★ ★ ★")
+      .append("\n")
+      .append(s"★ ★ ★ ★ ★ ★  Netty WorkerNum: ${config.workerNum}  ★ ★ ★ ★ ★ ★")
+      .append("\n")
+      .append(s"★ ★ ★ ★ ★ ★  Buffer size: ${config.channelQueueMaxSize}  ★ ★ ★ ★ ★ ★")
+
+    logger.info(startMassage)
+
+    for {
+      _ <- Netty toTask bindF
+      _ <- Task delay {
+        server.channel = bindF.channel
+      }
+    } yield server
+  } join
+}
+
+private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int, state: TaskVar[ServerState])(implicit pool: ExecutorService) { server =>
+  import Server._
 
   // this isn't ugly or anything...
   private var channel: _root_.io.netty.channel.Channel = _
 
   // represents incoming connections
-  private val queue = async.boundedQueue[(InetSocketAddress, Exchange[ByteVector, ByteVector])](limit)(Strategy.Executor(pool))
+  private val queue = async.boundedQueue[(InetSocketAddress, TaskVar[ServerState], Exchange[ByteVector, ByteVector])](queueSize)(Strategy.Executor(pool))
 
-  def listen: Process[Task, (InetSocketAddress, Exchange[ByteVector, ByteVector])] =
+  def listen: Process[Task, (InetSocketAddress, TaskVar[ServerState], Exchange[ByteVector, ByteVector])] = {
     queue.dequeue
+  }
 
   def shutdown(implicit pool: ExecutorService): Task[Unit] = {
-    logger.debug(".... shutdown server")
+    logger.info(s"★ ★ ★ ★ ★ ★ Shutdown server ${state.read.run} ★ ★ ★ ★ ★ ★")
     for {
       _ <- Netty toTask channel.close()
       _ <- queue.close
-
       _ <- Task delay {
         bossGroup.shutdownGracefully()
       }
     } yield ()
   }
 
+  /*
+  sealed trait Frame
+  case class Content(bts: BitVector) extends Frame
+  case object EOS extends Frame
+
+  private final class Deframer extends ByteToMessageDecoder {
+
+    private var remaining: Option[Int] = None
+
+    override protected def decode(ctx: ChannelHandlerContext, in: ByteBuf,
+                                  out: java.util.List[Object]): Unit =  {
+      remaining match {
+        case None =>
+          // we are expecting a frame header which is the number of bytes in the upcoming frame
+          if (in.readableBytes >= 4) {
+            val rem = in.readInt
+            if(rem == 0) {
+              out.add(EOS)
+            } else {
+              remaining = Some(rem)
+            }
+          }
+        case Some(rem) =>
+          // we are waiting for at least rem more bytes, as that is what
+          // is outstanding in the current frame
+          if(in.readableBytes() >= rem) {
+            val bytes = new Array[Byte](rem)
+            in.readBytes(bytes)
+            remaining = None
+            val bits = BitVector.view(bytes)
+            out.add(Content(bits))
+          }
+      }
+    }
+  }*/
+
   private final class Handler(channel: SocketChannel)(implicit pool: ExecutorService) extends ChannelInboundHandlerAdapter {
+    //SimpleChannelInboundHandler[Frame] {
+
     // data from a single connection
-    private val channelQueue = async.boundedQueue[ByteVector](limit)(Strategy.Executor(pool))
+    private val channelQueue = async.boundedQueue[ByteVector](queueSize)(Strategy.Executor(pool))
+
+    //override def channelRead0(ctx: ChannelHandlerContext, f: Frame): Unit = {}
 
     override def channelActive(ctx: ChannelHandlerContext): Unit = {
       val exchange: Exchange[ByteVector, ByteVector] = Exchange(read, write)
-      server.queue.enqueueOne((channel.remoteAddress, exchange)).run
+      logger.info(s"New connection from ${channel.remoteAddress}")
+      server.queue.enqueueOne((channel.remoteAddress, state, exchange)).run
 
       //init read from channel since ChannelOption.AUTO_READ == false
       ctx.read()
@@ -81,14 +205,16 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, limit: Int)(implicit p
 
     override def channelRead(ctx: ChannelHandlerContext, msg: AnyRef): Unit = {
       val buf = msg.asInstanceOf[ByteBuf]
-      val bv = ByteVector(buf.nioBuffer)       // copy data (alternatives are insanely clunky)
+      val bv = ByteVector(buf.nioBuffer)
       buf.release()
 
+      //Back pressure through queue size
+      //Blocking on queue will happen in pool thread, event-loops free to go
       Task.fork(channelQueue.enqueueOne(bv))(pool).runAsync { _ => ctx.read() }
     }
 
     override def exceptionCaught(ctx: ChannelHandlerContext, t: Throwable): Unit = {
-      logger.debug("Error " + t.getMessage)
+      logger.debug(s"Netty channel exception: ${t.getMessage}")
       shutdown
     }
 
@@ -96,7 +222,7 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, limit: Int)(implicit p
     private def read: Process[Task, ByteVector] = channelQueue.dequeue
 
     private def write: Sink[Task, ByteVector] = {
-      def inner(bv: ByteVector): Task[Unit] = {
+      def writer(bv: ByteVector): Task[Unit] = {
         Task delay {
           val data = bv.toArray
           val buf = channel.alloc().buffer(data.length)
@@ -107,7 +233,7 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, limit: Int)(implicit p
       }
 
       // TODO termination
-      Process constant (inner _)
+      Process constant (writer _)
     }
 
     def shutdown: Task[Unit] = {
@@ -119,43 +245,8 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, limit: Int)(implicit p
   }
 }
 
-private[netty] object Server {
-  def apply(bind: InetSocketAddress, config: ServerConfig)(implicit pool: ExecutorService): Task[Server] = Task delay {
-    val bossGroup = new NioEventLoopGroup()
-
-    val server = new Server(bossGroup, config.channelQueueMaxSize)
-    val bootstrap = new ServerBootstrap
-
-    bootstrap.group(bossGroup, Netty.workerGroup(config.workerNum))
-      .channel(classOf[NioServerSocketChannel])
-      .childOption[java.lang.Boolean](ChannelOption.SO_KEEPALIVE, config.keepAlive)
-      .childOption[java.lang.Boolean](ChannelOption.AUTO_READ, false)
-      .childHandler(new ChannelInitializer[SocketChannel] {
-        def initChannel(ch: SocketChannel): Unit = {
-          if (config.codeFrames) {
-            ch.pipeline
-              .addLast("frame encoding", new LengthFieldPrepender(4))
-              .addLast("frame decoding", new LengthFieldBasedFrameDecoder(Int.MaxValue, 0, 4, 0, 4))
-          }
-
-          ch.pipeline.addLast("incoming handler", new server.Handler(ch))
-        }
-      })
-
-    val bindF = bootstrap.bind(bind)
-
-    for {
-      _ <- Netty toTask bindF
-      _ <- Task delay {
-        server.channel = bindF.channel()      // yeah!  I <3 Netty
-      }
-    } yield server
-  } join
-}
-
 final case class ServerConfig(keepAlive: Boolean, workerNum: Int, channelQueueMaxSize: Int, codeFrames: Boolean)
 
 object ServerConfig {
-  // 1000?  does that even make sense?
-  val Default = ServerConfig(true, 4, 1000, true)
+  val Default = ServerConfig(true, Runtime.getRuntime.availableProcessors/2, 100, true)
 }

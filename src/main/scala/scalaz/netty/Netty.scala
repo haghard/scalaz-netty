@@ -20,6 +20,7 @@ package netty
 import java.util.concurrent.atomic.AtomicInteger
 
 import concurrent._
+import scalaz.netty.Server.{TaskVar, ServerState}
 import stream._
 
 import scodec.bits.ByteVector
@@ -28,12 +29,11 @@ import java.net.InetSocketAddress
 import java.util.concurrent.{ExecutorService, ThreadFactory}
 
 import _root_.io.netty.channel._
-import _root_.io.netty.channel.nio.NioEventLoopGroup
 
 object Netty {
 
   private[netty] final case class NettyThreadFactory(var name: String) extends ThreadFactory {
-    private def namePrefix = name + "-thread"
+    private def namePrefix = name + "-netty"
     private val threadNumber = new AtomicInteger(1)
     private val group = Thread.currentThread().getThreadGroup()
 
@@ -44,15 +44,13 @@ object Netty {
     }
   }
 
-  private[netty] def workerGroup(workerNum: Int) = new NioEventLoopGroup(workerNum, NettyThreadFactory("netty-worker"))
-
-  def server(bind: InetSocketAddress, config: ServerConfig = ServerConfig.Default)(implicit pool: ExecutorService): Process[Task, (InetSocketAddress, Exchange[ByteVector, ByteVector])] = {
+  def server(bind: InetSocketAddress, config: ServerConfig = ServerConfig.Default)(implicit pool: ExecutorService): Process[Task, (InetSocketAddress, TaskVar[ServerState], Exchange[ByteVector, ByteVector])] = {
     Process.await(Server(bind, config)) { server: Server =>
       server.listen onComplete Process.eval(server.shutdown).drain
     }
   }
 
-  def connect(to: InetSocketAddress, config: ClientConfig = ClientConfig.Default)(implicit pool: ExecutorService = Strategy.DefaultExecutorService): Process[Task, Exchange[ByteVector, ByteVector]] = {
+  def connect(to: InetSocketAddress, config: ClientConfig = ClientConfig.Default)(implicit pool: ExecutorService): Process[Task, Exchange[ByteVector, ByteVector]] = {
     Process.await(Client(to, config)) { client: Client =>
       Process(Exchange(client.read, client.write)) onComplete Process.eval(client.shutdown).drain
     }
