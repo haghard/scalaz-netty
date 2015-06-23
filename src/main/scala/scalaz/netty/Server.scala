@@ -27,7 +27,7 @@ import scalaz.netty.Server.{TaskVar, ServerState}
 import stream._
 import syntax.monad._
 
-import scodec.bits.{BitVector, ByteVector}
+import scodec.bits.ByteVector
 
 import java.net.InetSocketAddress
 import java.util.concurrent.ExecutorService
@@ -122,7 +122,6 @@ private[netty] object Server {
 private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int, state: TaskVar[ServerState])(implicit pool: ExecutorService) { server =>
   import Server._
 
-  // this isn't ugly or anything...
   private var channel: _root_.io.netty.channel.Channel = _
 
   // represents incoming connections
@@ -218,7 +217,6 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int, state:
       shutdown
     }
 
-    // do not call more than once!
     private def read: Process[Task, ByteVector] = channelQueue.dequeue
 
     private def write: Sink[Task, ByteVector] = {
@@ -232,7 +230,6 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int, state:
         } join
       }
 
-      // TODO termination
       Process constant (writer _)
     }
 

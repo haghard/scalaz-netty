@@ -29,14 +29,9 @@ resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
 net.virtualvoid.sbt.graph.Plugin.graphSettings
 
-
 libraryDependencies ++= Seq(
-  //"org.scalaz"        %% "scalaz-core"   % "7.1.1",
-  "org.scalaz.stream" %% "scalaz-stream" % "0.7a",
-
+  "org.scodec"        %% "scodec-stream" % "0.10.0",
   "io.netty"          %  "netty-codec"   % "4.0.28.Final",
-
-  "org.scodec"        %% "scodec-core"   % "1.7.1",
   "log4j"             %  "log4j"         % "1.2.14"
 )
 
