@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicReference
 import org.apache.log4j.Logger
 
 import concurrent._
-import scalaz.netty.Netty.NettyThreadFactory
+import scalaz.netty.Netty.{ServerIn, NettyThreadFactory}
 import scalaz.netty.Server.{TaskVar, ServerState}
 import stream._
 import syntax.monad._
@@ -125,27 +125,23 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int, state:
   private var channel: _root_.io.netty.channel.Channel = _
 
   // represents incoming connections
-  private val queue = async.boundedQueue[(InetSocketAddress, TaskVar[ServerState], Exchange[ByteVector, ByteVector])](queueSize)(Strategy.Executor(pool))
+  private val queue = async.boundedQueue[ServerIn](queueSize)(Strategy.Executor(pool))
 
-  def listen: Process[Task, (InetSocketAddress, TaskVar[ServerState], Exchange[ByteVector, ByteVector])] = {
-    queue.dequeue
-  }
+  def listen: Process[Task, ServerIn] = queue.dequeue
 
   def shutdown(implicit pool: ExecutorService): Task[Unit] = {
     logger.info(s"★ ★ ★ ★ ★ ★ Shutdown server ${state.read.run} ★ ★ ★ ★ ★ ★")
     for {
       _ <- Netty toTask channel.close()
       _ <- queue.close
-      _ <- Task delay {
-        bossGroup.shutdownGracefully()
-      }
+      _ <- Task.delay{bossGroup.shutdownGracefully()}
     } yield ()
   }
 
-  /*
+/*
   sealed trait Frame
   case class Content(bts: BitVector) extends Frame
-  case object EOS extends Frame
+  case object EOF extends Frame
 
   private final class Deframer extends ByteToMessageDecoder {
 
@@ -158,11 +154,8 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int, state:
           // we are expecting a frame header which is the number of bytes in the upcoming frame
           if (in.readableBytes >= 4) {
             val rem = in.readInt
-            if(rem == 0) {
-              out.add(EOS)
-            } else {
-              remaining = Some(rem)
-            }
+            if(rem == 0) out.add(EOF)
+            else remaining = Some(rem)
           }
         case Some(rem) =>
           // we are waiting for at least rem more bytes, as that is what
@@ -178,13 +171,9 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int, state:
     }
   }*/
 
-  private final class Handler(channel: SocketChannel)(implicit pool: ExecutorService) extends ChannelInboundHandlerAdapter {
-    //SimpleChannelInboundHandler[Frame] {
-
+  final class Handler(channel: SocketChannel)(implicit pool: ExecutorService) extends ChannelInboundHandlerAdapter {
     // data from a single connection
     private val channelQueue = async.boundedQueue[ByteVector](queueSize)(Strategy.Executor(pool))
-
-    //override def channelRead0(ctx: ChannelHandlerContext, f: Frame): Unit = {}
 
     override def channelActive(ctx: ChannelHandlerContext): Unit = {
       val exchange: Exchange[ByteVector, ByteVector] = Exchange(read, write)
@@ -233,7 +222,7 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int, state:
       Process constant (writer _)
     }
 
-    def shutdown: Task[Unit] = {
+    def shutdown(): Task[Unit] = {
       for {
         _ <- Netty toTask channel.close()
         _ <- channelQueue.close

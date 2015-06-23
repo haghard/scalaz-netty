@@ -23,6 +23,7 @@ class ScalazNettyBatchRequestSingleResponseSpec extends Specification with Scala
       val iterationN = 8
       val clientSize = 3
 
+      val P = Process
       val ES = newFixedThreadPool(2, namedThreadFactory("server-body"))
       val C = newFixedThreadPool(clientSize, namedThreadFactory("client"))
 
@@ -30,36 +31,36 @@ class ScalazNettyBatchRequestSingleResponseSpec extends Specification with Scala
       val bufAlice = Buffer.empty[String]
       val bufJack = Buffer.empty[String]
 
-      val disconnectedClients = async.signalOf(0)(Strategy.Executor(newFixedThreadPool(1, namedThreadFactory("signal"))))
+      val disconnected = async.signalOf(0)(Strategy.Executor(newFixedThreadPool(1, namedThreadFactory("signal"))))
 
-      def serverBody(batch: Vector[ByteVector], state: TaskVar[ServerState], address: InetSocketAddress) = {
+      def serverHandler(batch: Vector[ByteVector], state: TaskVar[ServerState], address: InetSocketAddress) = {
         state.modify { c ⇒
           c.copy(tracker = c.tracker + (address -> (c.tracker.getOrElse(address, 0l) + batch.size)))
         }.run
 
         logger.info(s"Processing batch: ${batch.map(_.decodeUtf8.fold(ex ⇒ ex.getMessage, r ⇒ r)).mkString(", ")}")
-        //sleep should be before signal modification
-        //simulate processing
         Thread.sleep(500)
 
         if (batch(0).decodeUtf8.fold(ex ⇒ ex.getMessage, r ⇒ r) == PoisonPill) {
           logger.info(s"Disconnect client")
-          disconnectedClients.compareAndSet(_.map(_ + 1)).run
+          disconnected.compareAndSet(_.map(_ + 1)).run
         }
-        batch.reduce(_ ++ _)
+        batch reduce (_ ++ _)
       }
 
       val cfg = scalaz.netty.ServerConfig(true, clientSize, batchSize, true)
       val S = Strategy.Executor(ES)
+
+      //This is a server that wil be stopped if disconnected == 0
       val EchoGreetingServer = merge.mergeN(clientSize)(Netty.server(address, cfg)(ES).map { v ⇒
         for {
-          _ ← Process.eval(Task.delay(logger.info(s"Start interact with client from ${v._1}")))
+          _ ← P.eval(Task.delay(logger.info(s"Start interact with client from ${v._1}")))
           address = v._1
           state = v._2
           Exchange(src, sink) = v._3
-          _ ← Process.eval(state.modify(c ⇒ c.copy(tracker = c.tracker + (address -> 0l))))
-          e = (src.chunk(batchSize) map { bs ⇒ serverBody(bs, state, address) } to sink)
-          _ ← (disconnectedClients.discrete.map(x ⇒ if (x < clientSize) false else true)).wye(e)(wye.interrupt)(S)
+          _ ← P.eval(state.modify(c ⇒ c.copy(tracker = c.tracker + (address -> 0l))))
+          e = src chunk batchSize map { bs ⇒ serverHandler(bs, state, address) } to sink
+          _ ← (disconnected.discrete.map(x ⇒ if (x < clientSize) false else true)).wye(e)(wye.interrupt)(S)
             .onComplete(P.eval_(throw new Exception("All clients were disconnected")))
         } yield ()
       })(S)

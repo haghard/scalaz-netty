@@ -23,7 +23,7 @@ import concurrent._
 import scalaz.netty.Server.{TaskVar, ServerState}
 import stream._
 
-import scodec.bits.ByteVector
+import scodec.bits.{BitVector, ByteVector}
 
 import java.net.InetSocketAddress
 import java.util.concurrent.{ExecutorService, ThreadFactory}
@@ -31,6 +31,11 @@ import java.util.concurrent.{ExecutorService, ThreadFactory}
 import _root_.io.netty.channel._
 
 object Netty {
+
+  type Handler = BitVector => BitVector
+  type BatchHandler = Vector[BitVector] => BitVector
+
+  type ServerIn = (InetSocketAddress, TaskVar[ServerState], Exchange[ByteVector, ByteVector])
 
   private[netty] final case class NettyThreadFactory(var name: String) extends ThreadFactory {
     private def namePrefix = name + "-netty"
@@ -44,7 +49,7 @@ object Netty {
     }
   }
 
-  def server(bind: InetSocketAddress, config: ServerConfig = ServerConfig.Default)(implicit pool: ExecutorService): Process[Task, (InetSocketAddress, TaskVar[ServerState], Exchange[ByteVector, ByteVector])] = {
+  def server(bind: InetSocketAddress, config: ServerConfig = ServerConfig.Default)(implicit pool: ExecutorService): Process[Task, ServerIn] = {
     Process.await(Server(bind, config)) { server: Server =>
       server.listen onComplete Process.eval(server.shutdown).drain
     }
@@ -81,4 +86,3 @@ object Netty {
     }
   }
 }
-
