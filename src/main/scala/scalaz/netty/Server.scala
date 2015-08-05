@@ -119,7 +119,8 @@ private[netty] object Server {
   } join
 }
 
-private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int, state: TaskVar[ServerState])(implicit pool: ExecutorService) { server =>
+private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int,
+                            state: TaskVar[ServerState])(implicit pool: ExecutorService) { server =>
   import Server._
 
   private var channel: _root_.io.netty.channel.Channel = _

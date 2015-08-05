@@ -6,6 +6,7 @@ import org.specs2.mutable.Specification
 import scodec.bits.ByteVector
 
 import scala.collection.mutable.Buffer
+import scala.concurrent.duration.Duration
 import scalaz.{\/-, Nondeterminism}
 import scalaz.concurrent.{ Strategy, Task }
 import scalaz.netty.Server.{ ServerState, TaskVar }
@@ -31,6 +32,33 @@ class ScalazNettyBatchRequestSingleResponseSpec extends Specification with Scala
       val bufAlice = Buffer.empty[String]
       val bufJack = Buffer.empty[String]
 
+
+      def discreteTime(stepMs: Long = 50l): Process[Task, Long] = Process.suspend {
+        Process.repeatEval {
+          Task.delay { Thread.sleep(stepMs); System.nanoTime }
+        }
+      }
+
+      def combinedRequest[I](duration: Duration, maxSize: Int = Int.MaxValue): scalaz.stream.Wye[Long, I, Vector[I]] = {
+        import scalaz.stream.ReceiveY.{ HaltOne, ReceiveL, ReceiveR }
+        val timeWindow = duration.toNanos
+
+        def go(acc: Vector[I], last: Long): Wye[Long, I, Vector[I]] =
+          P.awaitBoth[Long, I].flatMap {
+            case ReceiveL(current) ⇒
+              if (current - last > timeWindow || acc.size >= maxSize) P.emit(acc) ++ go(Vector(), current)
+              else go(acc, last)
+            case ReceiveR(i) ⇒
+              if (acc.size + 1 >= maxSize) P.emit(acc :+ i) ++ go(Vector(), last)
+              else go(acc :+ i, last)
+            case HaltOne(e) ⇒
+              if (!acc.isEmpty) P.emit(acc) ++ P.Halt(e)
+              else P.Halt(e)
+          }
+
+        go(Vector(), System.nanoTime)
+      }
+
       val disconnected = async.signalOf(0)(Strategy.Executor(newFixedThreadPool(1, namedThreadFactory("signal"))))
 
       def serverHandler(batch: Vector[ByteVector], state: TaskVar[ServerState], address: InetSocketAddress) = {
@@ -52,6 +80,7 @@ class ScalazNettyBatchRequestSingleResponseSpec extends Specification with Scala
       val S = Strategy.Executor(ES)
 
       //This is a server that wil be stopped if disconnected == 0
+      import scala.concurrent.duration._
       val EchoGreetingServer = merge.mergeN(clientSize)(Netty.server(address, cfg)(ES).map { v ⇒
         for {
           _ ← P.eval(Task.delay(logger.info(s"Start interact with client from ${v._1}")))
@@ -59,7 +88,8 @@ class ScalazNettyBatchRequestSingleResponseSpec extends Specification with Scala
           state = v._2
           Exchange(src, sink) = v._3
           _ ← P.eval(state.modify(c ⇒ c.copy(tracker = c.tracker + (address -> 0l))))
-          e = src chunk batchSize map { bs ⇒ serverHandler(bs, state, address) } to sink
+          e = (discreteTime(500l) wye src)(combinedRequest(2 seconds))(S) map { bs ⇒ serverHandler(bs, state, address) } to sink
+          //e = src chunk batchSize map { bs ⇒ serverHandler(bs, state, address) } to sink
           _ ← (disconnected.discrete.map(x ⇒ if (x < clientSize) false else true)).wye(e)(wye.interrupt)(S)
             .onComplete(P.eval_(throw new Exception("All clients were disconnected")))
         } yield ()
@@ -79,7 +109,7 @@ class ScalazNettyBatchRequestSingleResponseSpec extends Specification with Scala
           go(n, n)
         }
 
-        def nLeft[I, I2](n: Int): Wye[I, I2, Any] = {
+        def countDownLeft[I, I2](n: Int): Wye[I, I2, Any] = {
           def go(n: Int, limit: Int): Wye[I, I2, Any] = {
             if (n > 0) wye.receiveL[I, I2, Any] { l: I ⇒ emit[I](l) ++ go(n - 1, limit) }
             else wye.receiveR[I, I2, Any] { r: I2 ⇒ emit[I2](r) ++ go(limit, limit) }
@@ -107,11 +137,11 @@ class ScalazNettyBatchRequestSingleResponseSpec extends Specification with Scala
           Exchange(src, sink) = transcodeUtf(exchange)
 
           out = (requestSrc(target) take n) ++ poison |> lift { b ⇒ logger.info(s"send for $target"); b } to sink
-          in = src observe (LoggerS) to io.fillBuffer(buf)
+          in = src observe LoggerS to io.fillBuffer(buf)
 
           //_ ← (out tee in)(zipDeterministic(batchSize))
           //_ ← ((out zip naturals).wye(in)(bWye)(Strategy.Executor(C)))
-          _ ← (out.wye(in)(nLeft(batchSize))(Strategy.Executor(C))).take((batchSize + 1) * iterationN + batchSize)
+          _ ← (out wye in)(countDownLeft(batchSize))(Strategy.Executor(C)).take((batchSize + 1) * iterationN + batchSize)
         } yield ()
       }
 
