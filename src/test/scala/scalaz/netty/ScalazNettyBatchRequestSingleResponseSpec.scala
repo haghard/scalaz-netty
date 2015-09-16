@@ -83,7 +83,7 @@ class ScalazNettyBatchRequestSingleResponseSpec extends Specification with Scala
       import scala.concurrent.duration._
       val EchoGreetingServer = merge.mergeN(clientSize)(Netty.server(address, cfg)(ES).map { v ⇒
         for {
-          _ ← P.eval(Task.delay(logger.info(s"Start interact with client from ${v._1}")))
+          _ ← P.eval(Task.delay(logger.info(s"Connection is accepted from ${v._1}")))
           address = v._1
           state = v._2
           Exchange(src, sink) = v._3

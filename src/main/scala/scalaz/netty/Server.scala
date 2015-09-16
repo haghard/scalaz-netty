@@ -77,7 +77,7 @@ private[netty] object Server {
   }
 
   def apply(bind: InetSocketAddress, config: ServerConfig)(implicit pool: ExecutorService): Task[Server] = Task delay {
-    val bossThreadPool = new NioEventLoopGroup(2, NettyThreadFactory("boss"))
+    val bossThreadPool = new NioEventLoopGroup(1, NettyThreadFactory("boss"))
     val workerThreadPool = new NioEventLoopGroup(config.workerNum, NettyThreadFactory("worker"))
 
     val server = new Server(bossThreadPool, config.channelQueueMaxSize, TaskVar(ServerState()))
