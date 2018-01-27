@@ -194,9 +194,12 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int,
 
     override def channelRead(ctx: ChannelHandlerContext, msg: AnyRef): Unit = {
       val buf = msg.asInstanceOf[ByteBuf]
-      val bv = ByteVector(buf.nioBuffer)
-      buf.release()
-
+      //val bv = ByteVector(buf.nioBuffer)
+      val dst = Array.ofDim[Byte](buf.readableBytes)
+      buf.readBytes(dst)
+      //zero copy conversion
+      val bv = ByteVector.view(dst)
+      buf.release
 
       //Blocking on queue will happen in pool thread, event-loops free to go
       Task.fork(channelQueue.enqueueOne(bv))(pool)

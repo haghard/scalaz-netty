@@ -70,21 +70,22 @@ private[netty] final class Client(limit: Int)(implicit pool: ExecutorService) {
     override def channelInactive(ctx: ChannelHandlerContext): Unit = {
       // if the connection is remotely closed, we need to clean things up on our side
       queue.close.run
-
       super.channelInactive(ctx)
     }
 
     override def channelRead(ctx: ChannelHandlerContext, msg: AnyRef): Unit = {
       val buf = msg.asInstanceOf[ByteBuf]
-      val bv = ByteVector(buf.nioBuffer)       // copy data (alternatives are insanely clunky)
-      buf.release()
-
-      Task.fork(queue.enqueueOne(bv))(pool).runAsync(_ => ())
+      val dst = Array.ofDim[Byte](buf.readableBytes)
+      buf.readBytes(dst)
+      //zero copy conversion
+      val bv = ByteVector.view(dst)
+      buf.release
+      Task.fork(queue.enqueueOne(bv))(pool)
+        .runAsync(_ => ())  //TODO: error handling
     }
 
     override def exceptionCaught(ctx: ChannelHandlerContext, t: Throwable): Unit = {
       queue.fail(t).run
-
       // super.exceptionCaught(ctx, t)
     }
   }
@@ -98,9 +99,7 @@ private[netty] object Client {
 
     bootstrap.group(workerThreadPool)
     bootstrap.channel(classOf[NioSocketChannel])
-
     bootstrap.option[java.lang.Boolean](ChannelOption.SO_KEEPALIVE, config.keepAlive)
-
     bootstrap.handler(new ChannelInitializer[SocketChannel] {
       def initChannel(ch: SocketChannel): Unit = {
         ch.pipeline
