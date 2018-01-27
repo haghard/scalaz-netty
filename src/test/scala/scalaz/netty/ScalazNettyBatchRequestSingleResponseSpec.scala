@@ -64,7 +64,7 @@ class ScalazNettyBatchRequestSingleResponseSpec extends Specification with Scala
       def serverHandler(batch: Vector[ByteVector], state: TaskVar[ServerState], address: InetSocketAddress) = {
         state.modify { c ⇒
           c.copy(tracker = c.tracker + (address -> (c.tracker.getOrElse(address, 0l) + batch.size)))
-        }.run
+        }.unsafePerformSync
 
         logger.info(s"Processing batch: ${batch.map(_.decodeUtf8.fold(ex ⇒ ex.getMessage, r ⇒ r)).mkString(", ")}")
         Thread.sleep(500)

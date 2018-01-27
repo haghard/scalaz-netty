@@ -31,9 +31,9 @@ libraryDependencies ++= Seq(
   "org.scalaz" %% "scalaz-core" % "7.2.7",
   "org.scalaz.stream" %% "scalaz-stream" % "0.8.6a",
 
-  "io.netty" % "netty-codec" % "4.0.42.Final",
-  "io.netty" % "netty-transport-native-epoll" % "4.0.42.Final",
-  "io.netty" % "netty-transport-native-epoll" % "4.0.42.Final" classifier "linux-x86_64",
+  "io.netty" % "netty-codec" % "4.1.20.Final",
+  "io.netty" % "netty-transport-native-epoll" % "4.1.20.Final",
+  "io.netty" % "netty-transport-native-epoll" % "4.1.20.Final" classifier "linux-x86_64",
 
   //"org.scodec"        %% "scodec-bits"   % "1.1.2"
   //"org.typelevel"     %% "scodec-core"   % "1.6.0"
