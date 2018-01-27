@@ -69,7 +69,7 @@ private[netty] final class Client(limit: Int)(implicit pool: ExecutorService) {
 
     override def channelInactive(ctx: ChannelHandlerContext): Unit = {
       // if the connection is remotely closed, we need to clean things up on our side
-      queue.close.run
+      queue.close.unsafePerformSync
       super.channelInactive(ctx)
     }
 
@@ -81,11 +81,11 @@ private[netty] final class Client(limit: Int)(implicit pool: ExecutorService) {
       val bv = ByteVector.view(dst)
       buf.release
       Task.fork(queue.enqueueOne(bv))(pool)
-        .runAsync(_ => ())  //TODO: error handling
+        .unsafePerformAsync(_ => ())  //TODO: error handling
     }
 
     override def exceptionCaught(ctx: ChannelHandlerContext, t: Throwable): Unit = {
-      queue.fail(t).run
+      queue.fail(t).unsafePerformSync
       // super.exceptionCaught(ctx, t)
     }
   }

@@ -14,30 +14,35 @@
  * limitations under the License.
  */
 
-import com.typesafe.sbt.SbtGit._
-import bintray.Keys._
+enablePlugins(GitVersioning)
 
 organization := "org.scalaz.netty"
 
 name := "scalaz-netty"
 
-scalaVersion := "2.11.8"
+scalaVersion := "2.12.4"
 
-crossScalaVersions := Seq(scalaVersion.value)
+//crossScalaVersions := Seq(scalaVersion.value, "2.12.0")
 
 resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
-net.virtualvoid.sbt.graph.Plugin.graphSettings
-
 libraryDependencies ++= Seq(
-  "org.scodec"        %% "scodec-stream" % "0.10.0",
-  "io.netty"          %  "netty-codec"   % "4.0.28.Final",
-  "log4j"             %  "log4j"         % "1.2.14"
+  "log4j"             %  "log4j"         % "1.2.14",
+  "org.scalaz"        %% "scalaz-core"   % "7.2.7",
+  "org.scalaz.stream" %% "scalaz-stream" % "0.8.6a",
+
+  "io.netty"          %  "netty-codec"   % "4.0.42.Final",
+  "io.netty"          %  "netty-transport-native-epoll"   % "4.0.42.Final",
+  "io.netty"          %  "netty-transport-native-epoll" % "4.0.42.Final" classifier "linux-x86_64",
+
+  //"org.scodec"        %% "scodec-bits"   % "1.1.2"
+  //"org.typelevel"     %% "scodec-core"   % "1.6.0"
+  "org.scodec" %% "scodec-core" % "1.10.3"
 )
 
 libraryDependencies ++= Seq(
-  "org.specs2"     %% "specs2-core" % "3.3"    % "test",
-  "org.scalacheck" %% "scalacheck"  % "1.12.2" % "test")
+  "org.specs2"     %% "specs2-core" % "3.8.6"  % "test",
+  "org.scalacheck" %% "scalacheck"  % "1.13.4" % "test")
 
 licenses += ("Apache-2.0", url("http://www.apache.org/licenses/"))
 
@@ -47,10 +52,9 @@ versionWithGit
 
 git.baseVersion := "master"
 
-bintraySettings
+bintrayOrganization := Some("rr")
 
-bintrayOrganization in bintray := Some("rr")
+bintrayRepository := (if (version.value startsWith "master") "snapshots" else "releases")
 
-repository in bintray := (if (version.value startsWith "master") "snapshots" else "releases")
 
 //set version:="0.2.1"

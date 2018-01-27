@@ -27,12 +27,12 @@ class StreamingServerSpec extends Specification with ScalazNettyConfig {
       val period = new FiniteDuration(1, TimeUnit.SECONDS)
 
       (time.awakeEvery(period).zip(P.range(0, n)))
-        .map(x ⇒ topic.publishOne(ByteVector(new Date().toString.getBytes)).run)
-        .runLog.runAsync(_ ⇒ ())
+        .map(_ ⇒ topic.publishOne(ByteVector(new Date().toString.getBytes)).unsafePerformSync)
+        .runLog.unsafePerformAsync(_ ⇒ ())
 
       val cleanup = Task.delay {
         logger.info("StreamingTimeServer complete")
-        topic.close.run
+        topic.close.unsafePerformSync
       }
 
       val errorHandler: Cause ⇒ Process[Task, Exchange[ByteVector, ByteVector]] = {
@@ -71,7 +71,7 @@ class StreamingServerSpec extends Specification with ScalazNettyConfig {
           out = topic.subscribe to exchange.write
           _ ← (in merge out)(Strategy.Executor(S))
         } yield ()) onHalt errorHandler
-      })(Topic).onComplete(P.eval(cleanup)).runLog.runAsync(_ ⇒ ())
+      })(Topic).onComplete(P.eval(cleanup)).runLog.unsafePerformAsync(_ ⇒ ())
 
       def client(id: Long, n: Int) = Netty.connect(address)(C).flatMap { exchange ⇒
         (for {
@@ -85,7 +85,8 @@ class StreamingServerSpec extends Specification with ScalazNettyConfig {
       val m = n - 5
       val (l, r) = ND.both(client(1, n).runLog[Task, Any], client(2, m).runLog[Task, Any]).run
 
-      Netty.connect(address).flatMap { ex ⇒ P.emit(ByteVector("stop".getBytes(enc))) to ex.write }.runLog.run
+      Netty.connect(address)
+        .flatMap { ex ⇒ P.emit(ByteVector("stop".getBytes(enc))) to ex.write }.runLog.run
 
       l.size must be equalTo n
       r.size must be equalTo m

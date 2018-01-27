@@ -57,14 +57,12 @@ private[netty] object Server {
 
   object TaskVar {
     def apply[A](value: => A): TaskVar[A] = new TaskVar[A] {
-      private val ref = new AtomicReference(value)
+      private val register = new AtomicReference(value)
 
-      def read = Task(ref.get)
-
-      def write(value: A) = Task(ref.set(value))
-
-      def compareAndSet(oldVal: A, newVal: A) = Task(ref.compareAndSet(oldVal, newVal))
-
+      def read = Task(register.get)
+      def write(value: A) = Task(register.set(value))
+      def compareAndSet(oldVal: A, newVal: A) =
+        Task(register.compareAndSet(oldVal, newVal))
       def transact[B](f: A => (A, B)): Task[B] = {
         for {
           a <- read
@@ -131,11 +129,11 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int,
   def listen: Process[Task, ServerIn] = queue.dequeue
 
   def shutdown(implicit pool: ExecutorService): Task[Unit] = {
-    logger.info(s"★ ★ ★ ★ ★ ★ Shutdown server ${state.read.run} ★ ★ ★ ★ ★ ★")
+    logger.info(s"★ ★ ★ ★ ★ ★ Shutdown server ${state.read.unsafePerformSync} ★ ★ ★ ★ ★ ★")
     for {
       _ <- Netty toTask channel.close()
       _ <- queue.close
-      _ <- Task.delay{bossGroup.shutdownGracefully()}
+      _ <- Task.delay(bossGroup.shutdownGracefully())
     } yield ()
   }
 
@@ -203,7 +201,7 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int,
 
       //Blocking on queue will happen in pool thread, event-loops free to go
       Task.fork(channelQueue.enqueueOne(bv))(pool)
-        .runAsync { _ => ctx.read() }
+        .unsafePerformAsync { _ => ctx.read() }
     }
 
     override def exceptionCaught(ctx: ChannelHandlerContext, t: Throwable): Unit = {

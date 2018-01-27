@@ -12,6 +12,7 @@ import scalaz._
 import scalaz.concurrent.{ Strategy, Task }
 import scalaz.stream.Process._
 import scalaz.stream.{ io, merge, _ }
+import scalaz.stream.process1.lift
 
 class ScalazNettyRequestResponseSpec extends Specification with ScalazNettyConfig {
 
@@ -37,10 +38,12 @@ class ScalazNettyRequestResponseSpec extends Specification with ScalazNettyConfi
         } yield ()
       })(Strategy.Executor(S))
 
-      EchoGreetingServer.run.runAsync(_ ⇒ ())
+      EchoGreetingServer.run.unsafePerformAsync(_ ⇒ ())
 
       def client(mes: String, buf: Buffer[String]) = {
-        val clientStream = requestSrc(mes).take(n) ++ (P.emit(PoisonPill) |> encUtf.encoder).map(_.toByteVector)
+        val clientStream = requestSrc(mes).take(n) ++ (P.emit(PoisonPill) |> lift { m =>
+          codecUtf8.encode(m)
+            .fold({ error => throw new Exception(error.message) }, { _.toByteVector })})
 
         for {
           exchange ← Netty.connect(address)(C)
@@ -65,7 +68,7 @@ class ScalazNettyRequestResponseSpec extends Specification with ScalazNettyConfi
       val bufBob = Buffer.empty[String]
       val bufAlice = Buffer.empty[String]
 
-      val r = ND.both(client("echo Bob", bufBob).runLog[Task, Any], client("echo Alice", bufAlice).runLog[Task, Any]).run
+      ND.both(client("echo Bob", bufBob).runLog[Task, Any], client("echo Alice", bufAlice).runLog[Task, Any]).unsafePerformSync
       bufBob.size must be equalTo n
       bufAlice.size must be equalTo n
     }

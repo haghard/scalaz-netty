@@ -26,7 +26,7 @@ class ServerWithExternalEffect extends Specification with ScalazNettyConfig {
       def server = P.repeatEval(Task now { bts: ByteVector ⇒
         Task {
           logger.info("external call")
-          Thread.sleep(ThreadLocalRandom.current().nextInt(100, 200))
+          Thread.sleep(java.util.concurrent.ThreadLocalRandom.current().nextInt(100, 200))
 
           if (bts.decodeUtf8.fold(ex ⇒ ex.getMessage, r ⇒ r) == "stop")
             throw new Exception("Stop command received") //not a best way, but ...

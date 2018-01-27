@@ -130,7 +130,8 @@ class ScalazNettyBatchRequestSingleResponseSpec extends Specification with Scala
         def zipDeterministic[I, I2](n: Int): Tee[I, I2, Any] = init[I, I2](n, n)
 
         val n = iterationN * batchSize
-        val poison = (P.emitAll(Seq.fill(batchSize)(PoisonPill)) |> encUtf.encoder) map (_.toByteVector)
+        val poison = (P.emitAll(Seq.fill(batchSize)(PoisonPill)) |> lift { str => codecUtf8.encode(str)
+                .fold({ error => throw new Exception(error.message) }, { _.toByteVector })})
 
         for {
           exchange ← Netty.connect(address)(C)
@@ -146,12 +147,12 @@ class ScalazNettyBatchRequestSingleResponseSpec extends Specification with Scala
       }
 
       //Start server
-      EchoGreetingServer.run.runAsync(_ ⇒ ())
+      EchoGreetingServer.run.unsafePerformAsync(_ ⇒ ())
 
       //Start clients
       val r = Nondeterminism[Task].nmap3(client("Bob", bufBob).run,
         client("Alice", bufAlice).run, client("Jack", bufJack).run) { (l: Unit, r: Unit, th: Unit) ⇒ true }
-        .attemptRun
+        .unsafePerformSyncAttempt
 
       r must be equalTo \/-(true)
 
