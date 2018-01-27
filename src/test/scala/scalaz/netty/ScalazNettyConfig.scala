@@ -32,23 +32,13 @@ trait ScalazNettyConfig {
     Task.delay(logger.info(s"Client receive: $line"))
   }
 
-
-  //import scodec.codecs.implicits._
-
   val codecUtf8: Codec[String] = scodec.codecs.utf8
   val codecInt: Codec[Int] = scodec.codecs.int32
-
-  //val encUtf = scodec.stream.encode.many(codec)
-  //val decUtf = scodec.stream.decode.many(codec)
-  //val encInt = scodec.stream.encode.many(codecInt)
-  //val decInt = scodec.stream.decode.many(codecInt)
 
   def transcodeUtf(ex: Exchange[ByteVector, ByteVector]) = {
     val Exchange(src, sink) = ex
     val src2 = src.map(_.toBitVector).map { bv ⇒
-      codecUtf8.decode(bv)
-          .fold({ error => throw new Exception(error.message) }, { dResult => dResult.value })
-      //decUtf.decode(b)
+      codecUtf8.decode(bv).fold({ error => throw new Exception(error.message) },(_.value))
     }
     Exchange(src2, sink)
   }
@@ -66,9 +56,9 @@ trait ScalazNettyConfig {
 
   def requestSrc(mes: String): Process[Task, ByteVector] = {
     def go(mes: String): Process[Task, String] =
-      P.await(Task.delay(mes))(m ⇒ P.emit(s"$mes-${System.currentTimeMillis()}") ++ go(mes))
+      P.await(Task.delay(mes))(_ ⇒ P.emit(s"$mes-${System.currentTimeMillis}") ++ go(mes))
     (go(mes) |> lift { str => codecUtf8.encode(str)
-        .fold({ error => throw new Exception(error.message) }, { _.toByteVector })})
+        .fold({ error => throw new Exception(error.message) },(_.toByteVector))})
   }
 
   def namedThreadFactory(name: String) = new ThreadFactory {

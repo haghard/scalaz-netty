@@ -46,7 +46,7 @@ private[netty] object Server {
   case class ServerState private[netty](messageNum: Long = 0l, errorNum: Long = 0l, 
                                         tracker: Map[InetSocketAddress, Long] = Map[InetSocketAddress, Long]())
   
-  /** An atomically updatable reference, guarded by the `Task` monad. */
+  /** An atomically updatable register, guarded by the `Task` monad. */
   sealed trait TaskVar[A] {
     def read: Task[A]
     def write(value: A): Task[Unit]
@@ -215,16 +215,11 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int,
       def writer(bv: ByteVector): Task[Unit] = {
         Task delay {
           val data = bv.toArray
-          val buf = channel.alloc().buffer(data.length)
+          val buf = channel.alloc.buffer(data.length)
           buf.writeBytes(data)
-          channel.eventLoop().execute(new Runnable() {
-            override def run: Unit = {
-              channel.writeAndFlush(buf)
-            }
-          })
+          channel.eventLoop().execute(() => channel.writeAndFlush(buf))
         }
       }
-
       Process constant (writer _)
     }
 

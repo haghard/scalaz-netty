@@ -27,13 +27,13 @@ scalaVersion := "2.12.4"
 resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
 libraryDependencies ++= Seq(
-  "log4j"             %  "log4j"         % "1.2.14",
-  "org.scalaz"        %% "scalaz-core"   % "7.2.7",
+  "log4j" % "log4j" % "1.2.14",
+  "org.scalaz" %% "scalaz-core" % "7.2.7",
   "org.scalaz.stream" %% "scalaz-stream" % "0.8.6a",
 
-  "io.netty"          %  "netty-codec"   % "4.0.42.Final",
-  "io.netty"          %  "netty-transport-native-epoll"   % "4.0.42.Final",
-  "io.netty"          %  "netty-transport-native-epoll" % "4.0.42.Final" classifier "linux-x86_64",
+  "io.netty" % "netty-codec" % "4.0.42.Final",
+  "io.netty" % "netty-transport-native-epoll" % "4.0.42.Final",
+  "io.netty" % "netty-transport-native-epoll" % "4.0.42.Final" classifier "linux-x86_64",
 
   //"org.scodec"        %% "scodec-bits"   % "1.1.2"
   //"org.typelevel"     %% "scodec-core"   % "1.6.0"
@@ -41,8 +41,8 @@ libraryDependencies ++= Seq(
 )
 
 libraryDependencies ++= Seq(
-  "org.specs2"     %% "specs2-core" % "3.8.6"  % "test",
-  "org.scalacheck" %% "scalacheck"  % "1.13.4" % "test")
+  "org.specs2" %% "specs2-core" % "3.8.6" % "test",
+  "org.scalacheck" %% "scalacheck" % "1.13.4" % "test")
 
 licenses += ("Apache-2.0", url("http://www.apache.org/licenses/"))
 

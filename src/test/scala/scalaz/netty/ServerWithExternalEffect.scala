@@ -28,7 +28,7 @@ class ServerWithExternalEffect extends Specification with ScalazNettyConfig {
           logger.info("external call")
           Thread.sleep(java.util.concurrent.ThreadLocalRandom.current().nextInt(100, 200))
 
-          if (bts.decodeUtf8.fold(ex ⇒ ex.getMessage, r ⇒ r) == "stop")
+          if (bts.decodeUtf8.fold(ex ⇒ ex.getMessage, identity) == "stop")
             throw new Exception("Stop command received") //not a best way, but ...
 
           P.emit(greeting ++ bts)
@@ -45,7 +45,7 @@ class ServerWithExternalEffect extends Specification with ScalazNettyConfig {
         } yield ()
       })(S)
 
-      EchoGreetingServer.runLog.runAsync(_ ⇒ ())
+      EchoGreetingServer.runLog.unsafePerformAsync(_ ⇒ ())
 
       def batchClient(message: String) = Netty connect address flatMap { exchange ⇒
         val source: Process[Task, ByteVector] = P.emitAll(Seq.fill(n)(ByteVector(message.getBytes(enc))))

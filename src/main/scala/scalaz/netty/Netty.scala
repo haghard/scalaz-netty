@@ -63,24 +63,17 @@ object Netty {
 
   private[netty] def toTask(f: ChannelFuture)(implicit pool: ExecutorService): Task[Unit] = fork {
     Task async { (cb: (Throwable \/ Unit) => Unit) =>
-      f.addListener(new ChannelFutureListener {
-        def operationComplete(f: ChannelFuture): Unit = {
-          if (f.isSuccess)
-            cb(\/-(()))
-          else
-            cb(-\/(f.cause))
-        }
+      f.addListener((f: ChannelFuture) => {
+        if (f.isSuccess) cb(\/-(()))
+        else cb(-\/(f.cause))
       })
     }
   }
 
   private def fork[A](t: Task[A])(implicit pool: ExecutorService = Strategy.DefaultExecutorService): Task[A] = {
     Task async { cb =>
-      t runAsync { either =>
-        pool.submit(new Runnable {
-          def run(): Unit = cb(either)
-        })
-
+      t.unsafePerformAsync { either =>
+        pool.submit((() => cb(either)): Runnable)
         ()
       }
     }
