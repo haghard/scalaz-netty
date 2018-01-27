@@ -197,9 +197,10 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int,
       val bv = ByteVector(buf.nioBuffer)
       buf.release()
 
-      //Back pressure through queue size
+
       //Blocking on queue will happen in pool thread, event-loops free to go
-      Task.fork(channelQueue.enqueueOne(bv))(pool).runAsync { _ => ctx.read() }
+      Task.fork(channelQueue.enqueueOne(bv))(pool)
+        .runAsync { _ => ctx.read() }
     }
 
     override def exceptionCaught(ctx: ChannelHandlerContext, t: Throwable): Unit = {
@@ -215,9 +216,12 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int,
           val data = bv.toArray
           val buf = channel.alloc().buffer(data.length)
           buf.writeBytes(data)
-
-          Netty toTask channel.writeAndFlush(buf)
-        } join
+          channel.eventLoop().execute(new Runnable() {
+            override def run: Unit = {
+              channel.writeAndFlush(buf)
+            }
+          })
+        }
       }
 
       Process constant (writer _)
