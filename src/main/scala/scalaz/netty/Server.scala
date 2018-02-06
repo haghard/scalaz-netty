@@ -23,7 +23,7 @@ import org.apache.log4j.Logger
 
 import concurrent._
 import scalaz.netty.Netty.{ServerIn, NettyThreadFactory}
-import scalaz.netty.Server.{TaskVar, ServerState}
+import Server.{TaskVar, ServerState}
 import stream._
 import syntax.monad._
 
@@ -43,15 +43,19 @@ import _root_.io.netty.handler.codec._
 private[netty] object Server {
   val logger = Logger.getLogger("scalaz-netty-server")
 
-  case class ServerState private[netty](messageNum: Long = 0l, errorNum: Long = 0l, 
-                                        tracker: Map[InetSocketAddress, Long] = Map[InetSocketAddress, Long]())
-  
+  case class ServerState private[netty](messageNum: Long = 0l, errorNum: Long = 0l,
+    tracker: Map[InetSocketAddress, Long] = Map[InetSocketAddress, Long]())
+
   /** An atomically updatable register, guarded by the `Task` monad. */
   sealed trait TaskVar[A] {
     def read: Task[A]
+
     def write(value: A): Task[Unit]
+
     def transact[B](f: A => (A, B)): Task[B]
+
     def compareAndSet(oldVal: A, newVal: A): Task[Boolean]
+
     def modify(f: A => A): Task[Unit] = transact(a => (f(a), ()))
   }
 
@@ -60,9 +64,12 @@ private[netty] object Server {
       private val register = new AtomicReference(value)
 
       def read = Task(register.get)
+
       def write(value: A) = Task(register.set(value))
+
       def compareAndSet(oldVal: A, newVal: A) =
         Task(register.compareAndSet(oldVal, newVal))
+
       def transact[B](f: A => (A, B)): Task[B] = {
         for {
           a <- read
@@ -118,7 +125,9 @@ private[netty] object Server {
 }
 
 private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int,
-                            state: TaskVar[ServerState])(implicit pool: ExecutorService) { server =>
+  state: TaskVar[ServerState])(implicit pool: ExecutorService) {
+  server =>
+
   import Server._
 
   private var channel: _root_.io.netty.channel.Channel = _
@@ -137,38 +146,38 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int,
     } yield ()
   }
 
-/*
-  sealed trait Frame
-  case class Content(bts: BitVector) extends Frame
-  case object EOF extends Frame
+  /*
+    sealed trait Frame
+    case class Content(bts: BitVector) extends Frame
+    case object EOF extends Frame
 
-  private final class Deframer extends ByteToMessageDecoder {
+    private final class Deframer extends ByteToMessageDecoder {
 
-    private var remaining: Option[Int] = None
+      private var remaining: Option[Int] = None
 
-    override protected def decode(ctx: ChannelHandlerContext, in: ByteBuf,
-                                  out: java.util.List[Object]): Unit =  {
-      remaining match {
-        case None =>
-          // we are expecting a frame header which is the number of bytes in the upcoming frame
-          if (in.readableBytes >= 4) {
-            val rem = in.readInt
-            if(rem == 0) out.add(EOF)
-            else remaining = Some(rem)
-          }
-        case Some(rem) =>
-          // we are waiting for at least rem more bytes, as that is what
-          // is outstanding in the current frame
-          if(in.readableBytes() >= rem) {
-            val bytes = new Array[Byte](rem)
-            in.readBytes(bytes)
-            remaining = None
-            val bits = BitVector.view(bytes)
-            out.add(Content(bits))
-          }
+      override protected def decode(ctx: ChannelHandlerContext, in: ByteBuf,
+                                    out: java.util.List[Object]): Unit =  {
+        remaining match {
+          case None =>
+            // we are expecting a frame header which is the number of bytes in the upcoming frame
+            if (in.readableBytes >= 4) {
+              val rem = in.readInt
+              if(rem == 0) out.add(EOF)
+              else remaining = Some(rem)
+            }
+          case Some(rem) =>
+            // we are waiting for at least rem more bytes, as that is what
+            // is outstanding in the current frame
+            if(in.readableBytes() >= rem) {
+              val bytes = new Array[Byte](rem)
+              in.readBytes(bytes)
+              remaining = None
+              val bits = BitVector.view(bytes)
+              out.add(Content(bits))
+            }
+        }
       }
-    }
-  }*/
+    }*/
 
   final class Handler(channel: SocketChannel)(implicit pool: ExecutorService) extends ChannelInboundHandlerAdapter {
     // data from a single connection
@@ -177,8 +186,7 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int,
     override def channelActive(ctx: ChannelHandlerContext): Unit = {
       val exchange: Exchange[ByteVector, ByteVector] = Exchange(read, write)
       logger.info(s"New connection from ${channel.remoteAddress}")
-      server.queue.enqueueOne((channel.remoteAddress, state, exchange)).run
-
+      server.queue.enqueueOne((channel.remoteAddress, state, exchange)).unsafePerformSync
       //init read from channel since ChannelOption.AUTO_READ == false
       ctx.read()
       super.channelActive(ctx)
@@ -201,7 +209,7 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int,
 
       //Blocking on queue will happen in pool thread, event-loops free to go
       Task.fork(channelQueue.enqueueOne(bv))(pool)
-        .unsafePerformAsync { _ => ctx.read() }
+        .unsafePerformAsync(_ => ctx.read)
     }
 
     override def exceptionCaught(ctx: ChannelHandlerContext, t: Throwable): Unit = {
@@ -220,7 +228,8 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int,
           channel.eventLoop().execute(() => channel.writeAndFlush(buf))
         }
       }
-      Process constant (writer _)
+
+      Process.constant(writer _)
     }
 
     def shutdown(): Task[Unit] = {
@@ -230,10 +239,11 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int,
       } yield ()
     }
   }
+
 }
 
 final case class ServerConfig(keepAlive: Boolean, workerNum: Int, channelQueueMaxSize: Int, codeFrames: Boolean)
 
 object ServerConfig {
-  val Default = ServerConfig(true, Runtime.getRuntime.availableProcessors/2, 100, true)
+  val Default = ServerConfig(true, Runtime.getRuntime.availableProcessors / 2, 100, true)
 }

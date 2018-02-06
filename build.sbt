@@ -24,6 +24,8 @@ scalaVersion := "2.12.4"
 
 //crossScalaVersions := Seq(scalaVersion.value, "2.12.0")
 
+val NettyVersion = "4.1.21.Final"
+
 resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
 libraryDependencies ++= Seq(
@@ -31,13 +33,15 @@ libraryDependencies ++= Seq(
   "org.scalaz" %% "scalaz-core" % "7.2.7",
   "org.scalaz.stream" %% "scalaz-stream" % "0.8.6a",
 
-  "io.netty" % "netty-codec" % "4.1.20.Final",
-  "io.netty" % "netty-transport-native-epoll" % "4.1.20.Final",
-  "io.netty" % "netty-transport-native-epoll" % "4.1.20.Final" classifier "linux-x86_64",
+  //"io.netty" % "netty-all" % "4.1.20.Final",
 
-  //"org.scodec"        %% "scodec-bits"   % "1.1.2"
-  //"org.typelevel"     %% "scodec-core"   % "1.6.0"
+  "io.netty" % "netty-codec-http" % NettyVersion,
+  "io.netty" % "netty-handler"   % NettyVersion,
+  "io.netty" % "netty-transport-native-epoll" % NettyVersion,
+  "io.netty" % "netty-transport-native-epoll" % NettyVersion classifier "linux-x86_64",
+
   "org.scodec" %% "scodec-core" % "1.10.3"
+  //, "com.spinoco" %% "fs2-http" % "0.2.1"
 )
 
 libraryDependencies ++= Seq(

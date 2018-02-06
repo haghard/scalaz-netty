@@ -20,7 +20,7 @@ package netty
 import java.util.concurrent.atomic.AtomicInteger
 
 import concurrent._
-import scalaz.netty.Server.{TaskVar, ServerState}
+import Server.{TaskVar, ServerState}
 import stream._
 
 import scodec.bits.{BitVector, ByteVector}
@@ -50,8 +50,8 @@ object Netty {
   }
 
   def server(bind: InetSocketAddress, config: ServerConfig = ServerConfig.Default)(implicit pool: ExecutorService): Process[Task, ServerIn] = {
-    Process.await(Server(bind, config)) { server: Server =>
-      server.listen onComplete Process.eval(server.shutdown).drain
+    Process.await(Server(bind, config)) { serv: Server =>
+      serv.listen onComplete Process.eval(serv.shutdown).drain
     }
   }
 

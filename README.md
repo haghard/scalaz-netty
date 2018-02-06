@@ -49,3 +49,6 @@ val DumbClient = Netty client address flatMap { exchange =>
 ## License
 
 Licensed under the Apache License 2.0.  For more information, please see `LICENSE.txt`.  Opening a pull request signifies your consent to license your contributions under the Apache License 2.0.  Don't open a pull request if you don't know what this means.
+
+
+https://habrahabr.ru/post/277695/

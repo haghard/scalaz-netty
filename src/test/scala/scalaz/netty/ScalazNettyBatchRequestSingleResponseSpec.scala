@@ -9,7 +9,7 @@ import scala.collection.mutable.Buffer
 import scala.concurrent.duration.Duration
 import scalaz.{\/-, Nondeterminism}
 import scalaz.concurrent.{ Strategy, Task }
-import scalaz.netty.Server.{ ServerState, TaskVar }
+import Server.{ ServerState, TaskVar }
 import scalaz.stream.Process._
 import scalaz.stream._
 import scalaz.stream.process1._
