@@ -22,13 +22,11 @@ import java.util.concurrent.atomic.AtomicReference
 import org.apache.log4j.Logger
 
 import concurrent._
-import scalaz.netty.Netty.{ServerIn, NettyThreadFactory}
-import Server.{TaskVar, ServerState}
+import scalaz.netty.Netty.{NettyThreadFactory, ServerIn}
+import Server.{ServerState, TaskVar}
 import stream._
 import syntax.monad._
-
 import scodec.bits.ByteVector
-
 import java.net.InetSocketAddress
 import java.util.concurrent.ExecutorService
 
@@ -39,6 +37,8 @@ import _root_.io.netty.channel.nio._
 import _root_.io.netty.channel.socket._
 import _root_.io.netty.channel.socket.nio._
 import _root_.io.netty.handler.codec._
+//import akka.actor.typed.ActorSystem
+//import akka.actor.typed.receptionist.Receptionist
 
 private[netty] object Server {
   val logger = Logger.getLogger("scalaz-netty-server")
@@ -220,14 +220,13 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int,
     private def read: Process[Task, ByteVector] = channelQueue.dequeue
 
     private def write: Sink[Task, ByteVector] = {
-      def writer(bv: ByteVector): Task[Unit] = {
+      def writer(bv: ByteVector): Task[Unit] =
         Task delay {
           val data = bv.toArray
           val buf = channel.alloc.buffer(data.length)
           buf.writeBytes(data)
           channel.eventLoop().execute(() => channel.writeAndFlush(buf))
         }
-      }
 
       Process.constant(writer _)
     }
@@ -245,5 +244,6 @@ private[netty] class Server(bossGroup: NioEventLoopGroup, queueSize: Int,
 final case class ServerConfig(keepAlive: Boolean, workerNum: Int, channelQueueMaxSize: Int, codeFrames: Boolean)
 
 object ServerConfig {
+
   val Default = ServerConfig(true, Runtime.getRuntime.availableProcessors / 2, 100, true)
 }

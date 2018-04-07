@@ -52,3 +52,6 @@ Licensed under the Apache License 2.0.  For more information, please see `LICENS
 
 
 https://habrahabr.ru/post/277695/
+
+
+https://github.com/jdegoes/winter-retreat-2018/tree/master/scalaz-io/lib

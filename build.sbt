@@ -1,3 +1,5 @@
+import sbt.Resolver
+
 /*
  * Copyright 2015 RichRelevance
  *
@@ -24,24 +26,29 @@ scalaVersion := "2.12.4"
 
 //crossScalaVersions := Seq(scalaVersion.value, "2.12.0")
 
-val NettyVersion = "4.1.21.Final"
+val NettyVersion = "4.1.23.Final"
 
-resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
+resolvers ++= Seq(
+  Resolver.defaultLocal,
+  Resolver.mavenLocal,
+  "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
+)
 
 libraryDependencies ++= Seq(
   "log4j" % "log4j" % "1.2.14",
   "org.scalaz" %% "scalaz-core" % "7.2.7",
   "org.scalaz.stream" %% "scalaz-stream" % "0.8.6a",
 
-  //"io.netty" % "netty-all" % "4.1.20.Final",
+  //"io.netty" % "netty-all" % "4.1.23.Final",
 
   "io.netty" % "netty-codec-http" % NettyVersion,
   "io.netty" % "netty-handler"   % NettyVersion,
   "io.netty" % "netty-transport-native-epoll" % NettyVersion,
   "io.netty" % "netty-transport-native-epoll" % NettyVersion classifier "linux-x86_64",
 
-  "org.scodec" %% "scodec-core" % "1.10.3"
-  //, "com.spinoco" %% "fs2-http" % "0.2.1"
+  "org.scodec" %% "scodec-core" % "1.10.3",
+
+  //"com.typesafe.akka" %% "akka-actor-typed" % "2.5.9",
 )
 
 libraryDependencies ++= Seq(
@@ -59,6 +66,5 @@ git.baseVersion := "master"
 bintrayOrganization := Some("rr")
 
 bintrayRepository := (if (version.value startsWith "master") "snapshots" else "releases")
-
 
 //set version:="0.2.1"
